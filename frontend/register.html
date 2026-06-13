@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Register - Traffic AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body { font-family: Arial, sans-serif; padding: 40px }
+      form { max-width: 320px }
+      input, button { width: 100%; padding: 8px; margin: 6px 0 }
+    </style>
+  </head>
+  <body>
+    <h2>Register</h2>
+    <form id="regForm">
+      <input id="username" placeholder="Choose a username" required />
+      <input id="password" type="password" placeholder="Choose a password" required />
+      <button type="submit">Create account</button>
+    </form>
+    <p>Already have account? <a href="/login.html">Sign in</a></p>
+    <script>
+      const form = document.getElementById('regForm');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        try {
+          const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}` });
+          if (!res.ok) throw new Error('Register failed');
+          alert('Account created — you can now sign in');
+          window.location.href = '/login.html';
+        } catch (err) {
+          alert('Register failed');
+        }
+      });
+    </script>
+  </body>
+</html>

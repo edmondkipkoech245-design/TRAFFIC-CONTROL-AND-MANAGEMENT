@@ -1,9 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from typing import List, Optional
 from .simulated_data import generate_traffic
 import requests
 import logging
+import os
+import json
+from passlib.context import CryptContext
+import jwt
+from datetime import datetime, timedelta
 
 app = FastAPI(title="Traffic AI Prototype")
 
@@ -16,6 +22,65 @@ app.add_middleware(
 
 logger = logging.getLogger("traffic_ai")
 
+# Auth setup
+PWD_CTX = CryptContext(schemes=["bcrypt"], deprecated="auto")
+OAUTH2_SCHEME = OAuth2PasswordBearer(tokenUrl="/api/token")
+JWT_SECRET = os.environ.get("JWT_SECRET", "devsecret_change_me")
+JWT_ALGO = "HS256"
+USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
+
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f:
+            json.dump([], f)
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+def get_user(username: str):
+    users = load_users()
+    for u in users:
+        if u.get("username") == username:
+            return u
+    return None
+
+def create_user(username: str, password: str):
+    if get_user(username):
+        raise HTTPException(status_code=400, detail="User exists")
+    pw_hash = PWD_CTX.hash(password)
+    users = load_users()
+    users.append({"username": username, "password": pw_hash})
+    save_users(users)
+    return {"username": username}
+
+def verify_password(plain, hashed):
+    return PWD_CTX.verify(plain, hashed)
+
+def create_token(data: dict, expires_minutes: int = 60*24):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGO)
+
+def decode_token(token: str):
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_current_user(token: str = Depends(OAUTH2_SCHEME)):
+    payload = decode_token(token)
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    user = get_user(username)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return {"username": username}
+
 
 @app.get("/health")
 def health():
@@ -27,6 +92,26 @@ def traffic(count: int = 30):
     """Return simulated traffic points."""
     points = generate_traffic(count=count)
     return {"items": points}
+
+
+@app.post('/register')
+def register(username: str, password: str):
+    """Register a new user (simple)."""
+    return create_user(username, password)
+
+
+@app.post('/token')
+def token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = get_user(form_data.username)
+    if not user or not verify_password(form_data.password, user.get('password')):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    access_token = create_token({"sub": form_data.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get('/me')
+def me(user: dict = Depends(get_current_user)):
+    return user
 
 
 def query_osrm_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float) -> Optional[dict]:
