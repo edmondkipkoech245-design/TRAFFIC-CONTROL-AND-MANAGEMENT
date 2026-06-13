@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Traffic AI — Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      body, html, #map { height: 100%; margin: 0; padding: 0 }
+      #map { width: 100%; height: 100vh }
+      .legend { background: white; padding: 6px }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const map = L.map('map').setView([37.7749, -122.4194], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
+
+      const trafficLayer = L.layerGroup().addTo(map);
+      let start = null;
+      let end = null;
+      let startMarker = null;
+      let endMarker = null;
+      let routeLayer = null;
+
+      async function loadTraffic() {
+        try {
+          const res = await fetch('/api/traffic?count=40');
+          const json = await res.json();
+          const items = json.items || [];
+          trafficLayer.clearLayers();
+          items.forEach(it => {
+            const color = it.speed_kmh > 80 ? 'red' : it.speed_kmh > 50 ? 'orange' : 'green';
+            const circle = L.circleMarker([it.lat, it.lon], { radius: 8, color, fillOpacity: 0.7 });
+            circle.bindPopup(`ID: ${it.id}<br>Speed: ${it.speed_kmh} km/h`);
+            circle.addTo(trafficLayer);
+          });
+        } catch (err) {
+          console.error('Failed to load traffic', err);
+        }
+      }
+
+      function clearRoute() {
+        if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+        if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        start = null; end = null;
+      }
+
+      async function getRoute() {
+        if (!start || !end) return;
+        try {
+          const params = `?start_lat=${start.lat}&start_lon=${start.lng}&end_lat=${end.lat}&end_lon=${end.lng}`;
+          const res = await fetch('/api/route' + params);
+          const js = await res.json();
+          const geom = js.route && js.route.geometry;
+          if (geom && geom.coordinates) {
+            const coords = geom.coordinates.map(c => [c[1], c[0]]);
+            if (routeLayer) map.removeLayer(routeLayer);
+            routeLayer = L.polyline(coords, { color: 'blue', weight: 4 }).addTo(map);
+            map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+          } else {
+            alert('Route not available');
+          }
+        } catch (err) {
+          console.error('Route request failed', err);
+          alert('Failed to get route');
+        }
+      }
+
+      map.on('click', (e) => {
+        if (!start) {
+          start = e.latlng;
+          startMarker = L.marker(start, { title: 'Start' }).addTo(map).bindPopup('Start').openPopup();
+          return;
+        }
+        if (!end) {
+          end = e.latlng;
+          endMarker = L.marker(end, { title: 'End' }).addTo(map).bindPopup('End').openPopup();
+          getRoute();
+        }
+      });
+
+      // simple UI control
+      const ctrl = L.control({ position: 'topright' });
+      ctrl.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = '<b>Click map:</b> first = start, second = end<br/>' +
+          '<button id="clearRouteBtn">Clear route</button>';
+        return div;
+      };
+      ctrl.addTo(map);
+      // attach handler
+      document.addEventListener('click', (ev) => {
+        if (ev.target && ev.target.id === 'clearRouteBtn') {
+          clearRoute();
+        }
+      });
+
+      loadTraffic();
+      setInterval(loadTraffic, 8000);
+    </script>
+  </body>
+</html>
