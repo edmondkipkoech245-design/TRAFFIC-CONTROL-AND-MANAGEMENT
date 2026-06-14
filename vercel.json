@@ -8,14 +8,5 @@
     { "src": "/api/(.*)", "dest": "/api/app.py" },
     { "src": "/(.*)", "dest": "/frontend/$1" }
   ]
-  ,
-  "experimentalServices": {
-    "frontend": {
-      "routePrefix": "/"
-    },
-    "backend": {
-      "root": "backend",
-      "routePrefix": "_\/backend"
-    }
-  }
 }
+ }
